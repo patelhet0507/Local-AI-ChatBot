@@ -1,0 +1,45 @@
+{
+  "name": "local-ai-chatbot",
+  "version": "1.0.0",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis",
+    "dist:dir": "electron-builder --win dir",
+    "build:frontend": "cd frontend && npm run build",
+    "postinstall": "cd frontend && npm install"
+  },
+  "build": {
+    "appId": "com.local-ai-chatbot.app",
+    "productName": "Local AI Chatbot",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "backend", "to": "backend", "filter": ["**/*"] },
+      { "from": "frontend/dist", "to": "frontend/dist", "filter": ["**/*"] },
+      { "from": "venv", "to": "venv", "filter": ["**/*"] }
+    ],
+    "win": {
+      "target": ["nsis"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Local AI Chatbot",
+      "artifactName": "${productName}-Setup-${version}.exe"
+    },
+    "asar": true
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.15.3"
+  }
+}
