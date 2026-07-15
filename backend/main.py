@@ -6,7 +6,7 @@ from pydantic import BaseModel
 import sys, os, logging
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from inference import chat as chat_gen, reload_model, N_CTX, MODEL_PATH
+from inference import chat as chat_gen, reload_model, N_CTX, MODEL_INFO
 from db import (
     create_conversation, list_conversations, get_conversation,
     add_message, update_last_assistant, update_title, delete_conversation,
@@ -151,7 +151,11 @@ def root():
 
 @app.get("/api")
 def api_root():
-    return {"status": "ok", "model": MODEL_PATH}
+    return {"status": "ok", "model": MODEL_INFO}
+
+@app.get("/api/model")
+def model_endpoint():
+    return {"status": "ok", "model": MODEL_INFO}
 
 @app.post("/api/auth/register")
 def auth_register(body: RegisterRequest):
@@ -521,7 +525,7 @@ def settings_endpoint(data: SettingsRequest, user=Depends(require_user)):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
     try:
         reload_model(data.context_window)
-        return {"ok": True, "n_ctx": N_CTX}
+        return {"ok": True, "n_ctx": N_CTX, "note": "model reloaded"}
     except Exception as e:
         logger.exception("model reload failed")
         return JSONResponse(status_code=500, content={"error": f"Failed to reload model with n_ctx={data.context_window}: {e}"})

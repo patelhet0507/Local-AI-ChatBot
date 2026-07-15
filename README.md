@@ -121,7 +121,10 @@ All configuration is via `.env` in the project root. Required and optional varia
 ### Chat Interface
 - Streaming text generation (SSE via ReadableStream)
 - RAF-batched character reveal with blinking caret
+- "Thinking…" indicator while the first token is generated
 - Stop generation (AbortController)
+- Continue generating (resume a truncated reply)
+- Friendly rate-limit message with retry countdown
 - Markdown rendering with syntax-highlighted code blocks
 - Copy code block button on hover
 - Message editing (click pencil icon → edit → re-send)
@@ -136,11 +139,13 @@ All configuration is via `.env` in the project root. Required and optional varia
 - Rename conversations (double-click title)
 - Delete single or all conversations (with confirmation)
 - Date grouping (Today / Yesterday / Older)
-- Export conversation as Markdown file (.md download)
+- Export conversation as Markdown / JSON / Plain-text (.md / .json / .txt download)
 - Share conversation (copy to clipboard)
 
 ### Settings
 - Temperature, Max Tokens, Top P, Context Window sliders
+- "Recommended settings" button (auto-tunes Context Window to your available RAM)
+- Saved personas (preset system prompts, stored in localStorage)
 - System Prompt textarea (persisted in localStorage)
 - Profile name editing
 - Two-factor authentication toggle
@@ -244,6 +249,7 @@ All configuration is via `.env` in the project root. Required and optional varia
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api` | Health check + model info |
+| GET | `/api/model` | Model label (used by the landing-page indicator) |
 | POST | `/api/contact` | Contact form submission |
 | POST | `/api/settings` | Save context window setting |
 

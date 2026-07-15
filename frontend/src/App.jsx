@@ -1113,7 +1113,7 @@ function App() {
       })
       const data = await r.json().catch(() => ({}))
       if (!r.ok) pushToast(data.error || 'Failed to apply settings')
-      else pushToast('Settings saved — model reloaded')
+      else pushToast(data.note || 'Settings saved')
     } catch {
       pushToast('Failed to apply settings')
     } finally {
