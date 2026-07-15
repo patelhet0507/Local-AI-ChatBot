@@ -8,3 +8,4 @@ frontend/node_modules/
 frontend/dist/
 dist/
 .env*
+.model_selection.json

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 import sys, os, logging
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from inference import chat as chat_gen, reload_model, N_CTX, MODEL_INFO
+from inference import chat as chat_gen, reload_model, switch_model, list_models, current_model_name, N_CTX, MODEL_INFO
 from db import (
     create_conversation, list_conversations, get_conversation,
     add_message, update_last_assistant, update_title, delete_conversation,
@@ -47,6 +47,10 @@ class TitleRequest(BaseModel):
 
 class SettingsRequest(BaseModel):
     context_window: int = 2048
+
+
+class ModelSwitchRequest(BaseModel):
+    name: str
 
 class RegisterRequest(BaseModel):
     type: str  # 'email' or 'phone'
@@ -155,7 +159,19 @@ def api_root():
 
 @app.get("/api/model")
 def model_endpoint():
-    return {"status": "ok", "model": MODEL_INFO}
+    return {"status": "ok", "model": MODEL_INFO, "current": current_model_name(), "models": list_models()}
+
+
+@app.post("/api/model")
+def switch_model_endpoint(data: ModelSwitchRequest, user=Depends(require_user)):
+    if user is None:
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    try:
+        switch_model(data.name)
+        return {"ok": True, "model": MODEL_INFO, "current": current_model_name()}
+    except Exception as e:
+        logger.exception("model switch failed")
+        return JSONResponse(status_code=400, content={"error": f"Failed to switch model: {e}"})
 
 @app.post("/api/auth/register")
 def auth_register(body: RegisterRequest):

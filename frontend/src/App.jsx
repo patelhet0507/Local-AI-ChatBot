@@ -724,6 +724,8 @@ function App() {
     try { return JSON.parse(localStorage.getItem('sb_user') || 'null') } catch { return null }
   })
   const [modelInfo, setModelInfo] = useState(null)
+  const [availableModels, setAvailableModels] = useState([])
+  const [currentModel, setCurrentModel] = useState('')
   const [serverOk, setServerOk] = useState(null) // null = checking, true = alive, false = dead
   const [oauthChallenge, setOauthChallenge] = useState(null)
 
@@ -1149,6 +1151,32 @@ function App() {
     // ponytail: context window is now real (reloads model) — scale to available RAM
     setContextWindow(ram <= 4 ? 2048 : ram <= 8 ? 4096 : 8192)
     void cores
+  }
+
+  useEffect(() => {
+    if (!settingsOpen) return
+    fetch(`${API}/model`).then(r => r.json()).then(d => {
+      if (Array.isArray(d.models)) setAvailableModels(d.models)
+      if (d.current) setCurrentModel(d.current)
+    }).catch(() => {})
+  }, [settingsOpen])
+
+  async function switchModel(name) {
+    if (!name || name === currentModel) return
+    try {
+      const r = await authFetch(`${API}/model`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) return pushToast(data.error || 'Failed to switch model')
+      setCurrentModel(name)
+      setModelInfo(data.current || name)
+      pushToast(`Switched to ${name}`)
+    } catch {
+      pushToast('Failed to switch model')
+    }
   }
 
   async function sendMessage(e, msgText) {
@@ -1708,6 +1736,14 @@ function App() {
                 {settingsTab === 'model' ? (
                   <>
                     <p className="settings-sub">Adjust model parameters</p>
+                    <div className="settings-group">
+                      <label>Model</label>
+                      <select className="auth-input" value={currentModel} onChange={e => switchModel(e.target.value)}>
+                        {availableModels.length === 0 && <option value="">Loading models…</option>}
+                        {availableModels.map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                      {availableModels.length === 0 && <span className="muted">No models found in models/</span>}
+                    </div>
                     <div className="settings-group">
                       <label>Temperature <span className="val">{temperature}</span></label>
                       <input type="range" min="0" max="2" step="0.05" value={temperature} onChange={e => setTemperature(Number(e.target.value))} />

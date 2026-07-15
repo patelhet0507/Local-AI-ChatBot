@@ -143,6 +143,7 @@ All configuration is via `.env` in the project root. Required and optional varia
 - Share conversation (copy to clipboard)
 
 ### Settings
+- Model switcher (pick any GGUF in `models/`; selection persists across restarts)
 - Temperature, Max Tokens, Top P, Context Window sliders
 - "Recommended settings" button (auto-tunes Context Window to your available RAM)
 - Saved personas (preset system prompts, stored in localStorage)
