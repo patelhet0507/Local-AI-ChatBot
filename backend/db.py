@@ -45,6 +45,16 @@ def add_message(conv_id, role, content):
 def update_title(conv_id, title):
     supabase.table("conversations").update({"title": title, "updated_at": _now()}).eq("id", conv_id).execute()
 
+def update_last_assistant(conv_id, content):
+    # Used by "continue" — merge new tokens into the existing last assistant message.
+    msgs = supabase.table("messages").select("*").eq("conversation_id", conv_id).eq("role", "assistant").order("created_at").execute()
+    if not msgs.data:
+        add_message(conv_id, "assistant", content)
+        return
+    last_id = msgs.data[-1]["id"]
+    supabase.table("messages").update({"content": content, "updated_at": _now()}).eq("id", last_id).execute()
+    supabase.table("conversations").update({"updated_at": _now()}).eq("id", conv_id).execute()
+
 def delete_conversation(conv_id):
     supabase.table("conversations").delete().eq("id", conv_id).execute()
 

@@ -4,6 +4,10 @@ import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
+function linkify(text) {
+  return text.replace(/(https?:\/\/[^\s<]+)/g, '<$1>')
+}
+
 function CopyBtn({ text }) {
   const [copied, setCopied] = useState(false)
   return (
@@ -28,7 +32,7 @@ const markdownComponents = {
 }
 
 const MessageMarkdown = memo(function MessageMarkdown({ content }) {
-  return <ReactMarkdown components={markdownComponents}>{content}</ReactMarkdown>
+  return <ReactMarkdown components={markdownComponents}>{linkify(content)}</ReactMarkdown>
 })
 
 function StreamingText({ content }) {
@@ -190,6 +194,15 @@ function TypingDots() {
   return (
     <div className="typing-indicator">
       <span className="typing-cursor" />
+    </div>
+  )
+}
+
+function ThinkingIndicator() {
+  return (
+    <div className="thinking">
+      <span>Thinking</span>
+      <span className="thinking-dots"><i /><i /><i /></span>
     </div>
   )
 }
@@ -636,11 +649,13 @@ function App() {
   const [atBottom, setAtBottom] = useState(true)
 
   const [temperature, setTemperature] = useState(0.7)
-  const [maxTokens, setMaxTokens] = useState(512)
+  const [maxTokens, setMaxTokens] = useState(256)
   const [topP, setTopP] = useState(0.95)
   const [contextWindow, setContextWindow] = useState(2048)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState('model')
+  const [settingsBusy, setSettingsBusy] = useState(false)
+  const [exportMenu, setExportMenu] = useState(false)
   const [twoFA, setTwoFA] = useState(false)
   const [twoFABusy, setTwoFABusy] = useState(false)
   const [account, setAccount] = useState(null)
@@ -656,6 +671,8 @@ function App() {
   const [mBusy, setMBusy] = useState(false)
 
   const [systemPrompt, setSystemPrompt] = useState(() => localStorage.getItem('system_prompt') || '')
+  const [personas, setPersonas] = useState(() => { try { return JSON.parse(localStorage.getItem('personas') || '[]') } catch { return [] } })
+  const [personaName, setPersonaName] = useState('')
   const [editingIdx, setEditingIdx] = useState(null)
   const [editDraft, setEditDraft] = useState('')
   const [renamingId, setRenamingId] = useState(null)
@@ -684,6 +701,8 @@ function App() {
   const [pinnedConvs, setPinnedConvs] = useState(() => {
     try { return JSON.parse(localStorage.getItem('pinned_convs') || '[]') } catch { return [] }
   })
+  const [convSearchOpen, setConvSearchOpen] = useState(false)
+  const [convSearchText, setConvSearchText] = useState('')
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [deleteAllConfirm, setDeleteAllConfirm] = useState(false)
@@ -846,16 +865,29 @@ function App() {
     pushToast('Copied to clipboard')
   }
 
-  function exportConv() {
+  function exportConv(format = 'md') {
+    if (!convId || messages.length === 0) return
     const title = convs.find(c => c.id === convId)?.title || 'conversation'
-    const md = messages.map(m => (m.role === 'user' ? '## You\n' : '## Assistant\n') + m.content + '\n').join('\n---\n\n')
-    const blob = new Blob([`# ${title}\n\n${md}`], { type: 'text/markdown' })
+    const safe = title.replace(/[^a-z0-9]+/gi, '_')
+    let blob, ext, label
+    if (format === 'json') {
+      blob = new Blob([JSON.stringify({ title, messages }, null, 2)], { type: 'application/json' })
+      ext = 'json'; label = 'Exported as JSON'
+    } else if (format === 'txt') {
+      const txt = messages.map(m => `${m.role === 'user' ? 'You' : 'AI'}: ${m.content}`).join('\n\n')
+      blob = new Blob([`${title}\n\n${txt}`], { type: 'text/plain' })
+      ext = 'txt'; label = 'Exported as Plain text'
+    } else {
+      const md = messages.map(m => (m.role === 'user' ? '## You\n' : '## Assistant\n') + m.content + '\n').join('\n---\n\n')
+      blob = new Blob([`# ${title}\n\n${md}`], { type: 'text/markdown' })
+      ext = 'md'; label = 'Exported as Markdown'
+    }
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
-    a.download = `${title.replace(/[^a-z0-9]+/gi, '_')}.md`
+    a.download = `${safe}.${ext}`
     a.click()
     URL.revokeObjectURL(a.href)
-    pushToast('Exported as Markdown')
+    pushToast(label)
   }
 
   async function deleteAllConvs() {
@@ -1072,14 +1104,51 @@ function App() {
   }
 
   async function saveSettings() {
+    setSettingsBusy(true)
     try {
-      await authFetch(`${API}/settings`, {
+      const r = await authFetch(`${API}/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ context_window: contextWindow }),
       })
-    } catch {}
-    setSettingsOpen(false)
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) pushToast(data.error || 'Failed to apply settings')
+      else pushToast('Settings saved — model reloaded')
+    } catch {
+      pushToast('Failed to apply settings')
+    } finally {
+      setSettingsBusy(false)
+      setSettingsOpen(false)
+    }
+  }
+
+  function savePersona() {
+    const name = personaName.trim() || `Persona ${personas.length + 1}`
+    const next = [...personas, { id: Date.now().toString(), name, prompt: systemPrompt }]
+    setPersonas(next)
+    localStorage.setItem('personas', JSON.stringify(next))
+    setPersonaName('')
+    pushToast(`Saved persona: ${name}`)
+  }
+  function loadPersona(id) {
+    const p = personas.find(x => x.id === id)
+    if (p) { setSystemPrompt(p.prompt); pushToast(`Loaded: ${p.name}`) }
+  }
+  function deletePersona(id) {
+    const next = personas.filter(x => x.id !== id)
+    setPersonas(next)
+    localStorage.setItem('personas', JSON.stringify(next))
+  }
+
+  function applyRecommended() {
+    const ram = navigator.deviceMemory || 8           // approx GB, may be undefined
+    const cores = navigator.hardwareConcurrency || 4
+    setTemperature(0.7)
+    setTopP(0.95)
+    setMaxTokens(ram >= 8 ? 1024 : 512)
+    // ponytail: context window is now real (reloads model) — scale to available RAM
+    setContextWindow(ram <= 4 ? 2048 : ram <= 8 ? 4096 : 8192)
+    void cores
   }
 
   async function sendMessage(e, msgText) {
@@ -1087,13 +1156,14 @@ function App() {
     const text = msgText || input
     if (!text.trim() || loading || !convId) return
 
-    const userMsg = { role: 'user', content: text }
+    const ts = new Date().toISOString()
+    const userMsg = { role: 'user', content: text, created_at: ts }
     setMessages(prev => [...prev, userMsg])
     if (!msgText) setInput('')
     setLoading(true)
 
     const history = systemPrompt ? [{ role: 'system', content: systemPrompt }, ...messages, userMsg] : [...messages, userMsg]
-    const aiMsg = { role: 'assistant', content: '' }
+    const aiMsg = { role: 'assistant', content: '', created_at: ts }
     setMessages(prev => [...prev, aiMsg])
 
     setEditingIdx(null)
@@ -1112,6 +1182,18 @@ function App() {
         }),
         signal: controller.signal,
       })
+      if (!res.ok) {
+        let msg = 'Request failed.'
+        try { const j = await res.json(); if (j && j.error) msg = j.error } catch {}
+        if (res.status === 429) msg = `Rate limited — try again in ${res.headers.get('Retry-After') || 'a few'}s.`
+        setMessages(prev => {
+          const next = [...prev]
+          next[next.length - 1] = { role: 'assistant', content: `⚠️ ${msg}` }
+          return next
+        })
+        pushToast(msg)
+        return
+      }
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
@@ -1132,8 +1214,19 @@ function App() {
       }
       if (frame !== null) cancelAnimationFrame(frame)
       flush()
-      if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-        new Notification('Local AI Chatbot', { body: 'Your response is ready.', icon: '/favicon.ico' })
+      if (document.hidden) {
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification('Local AI Chatbot', { body: 'Your response is ready.', icon: '/favicon.ico' })
+        }
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)()
+          const osc = ctx.createOscillator()
+          const g = ctx.createGain()
+          osc.connect(g); g.connect(ctx.destination)
+          osc.frequency.value = 660; g.gain.value = 0.08
+          osc.start(); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15)
+          osc.stop(ctx.currentTime + 0.15)
+        } catch {}
       }
     } catch (err) {
       if (err.name === 'AbortError') return
@@ -1142,6 +1235,61 @@ function App() {
         next[next.length - 1] = { role: 'assistant', content: 'Error: could not reach the server.' }
         return next
       })
+    } finally {
+      setLoading(false)
+      abortRef.current = null
+      const r = await authFetch(`${API}/conversations`)
+      setConvs(await r.json())
+    }
+  }
+
+  async function continueGeneration() {
+    if (loading || !convId) return
+    const idx = messages.length - 1
+    if (messages[idx]?.role !== 'assistant') return
+    setLoading(true)
+    const history = systemPrompt ? [{ role: 'system', content: systemPrompt }, ...messages] : [...messages]
+    const controller = new AbortController()
+    abortRef.current = controller
+    try {
+      const res = await authFetch(`${API}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: convId, messages: history,
+          temperature, max_tokens: maxTokens, top_p: topP,
+        }),
+        signal: controller.signal,
+      })
+      if (!res.ok) {
+        let msg = 'Continue failed.'
+        try { const j = await res.json(); if (j && j.error) msg = j.error } catch {}
+        pushToast(msg)
+        return
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = messages[idx].content
+      let frame = null
+      const flush = () => {
+        frame = null
+        setMessages(prev => {
+          const next = [...prev]
+          next[idx] = { ...next[idx], content: buffer }
+          return next
+        })
+      }
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        if (frame === null) frame = requestAnimationFrame(flush)
+      }
+      if (frame !== null) cancelAnimationFrame(frame)
+      flush()
+    } catch (err) {
+      if (err.name === 'AbortError') return
+      pushToast('Failed to continue')
     } finally {
       setLoading(false)
       abortRef.current = null
@@ -1291,10 +1439,25 @@ function App() {
               <span className="chat-header-status"><span className="status-dot" /> Local model · online</span>
             </div>
             {messages.length > 0 && (
-              <motion.button className="icon-btn" onClick={exportConv} whileTap={{ scale: 0.97 }} whileHover={{ scale: 1.08 }} title="Export as Markdown">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-              </motion.button>
+              <div style={{ position: 'relative' }}>
+                <motion.button className="icon-btn" onClick={() => setExportMenu(o => !o)} whileTap={{ scale: 0.97 }} whileHover={{ scale: 1.08 }} title="Export conversation">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                </motion.button>
+                {exportMenu && (
+                  <>
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 50 }} onClick={() => setExportMenu(false)} />
+                    <div className="export-menu">
+                      <button onClick={() => { exportConv('md'); setExportMenu(false) }}>Markdown</button>
+                      <button onClick={() => { exportConv('json'); setExportMenu(false) }}>JSON</button>
+                      <button onClick={() => { exportConv('txt'); setExportMenu(false) }}>Plain text</button>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
+            <motion.button className="icon-btn" onClick={() => setConvSearchOpen(o => !o)} whileTap={{ scale: 0.97 }} whileHover={{ scale: 1.08 }} title="Search messages">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            </motion.button>
             <motion.button className="icon-btn" onClick={() => setShortcutsOpen(true)} whileTap={{ scale: 0.97 }} whileHover={{ scale: 1.08 }} title="Keyboard shortcuts">
               <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: '0.9rem' }}>?</span>
             </motion.button>
@@ -1302,6 +1465,13 @@ function App() {
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
             </motion.button>
           </div>
+
+          {convSearchOpen && (
+            <div className="conv-search-bar">
+              <input className="conv-search-input" autoFocus placeholder="Search messages…" value={convSearchText} onChange={e => setConvSearchText(e.target.value)} />
+              <button className="conv-search-close" onClick={() => { setConvSearchOpen(false); setConvSearchText('') }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+            </div>
+          )}
 
           <div className="chat-messages" ref={messagesRef} onScroll={handleScroll}>
             <AnimatePresence initial={false}>
@@ -1344,7 +1514,10 @@ function App() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                 >
-                  {messages.map((msg, i) => (
+                  {messages.map((msg, i) => {
+                    const match = convSearchText && msg.content?.toLowerCase().includes(convSearchText.toLowerCase())
+                    if (convSearchText && !match) return null
+                    return (
                     <motion.div
                       key={`${msg.role}-${i}`}
                       className={`message-row ${msg.role}`}
@@ -1368,7 +1541,7 @@ function App() {
                               onBlur={() => setEditingIdx(null)}
                             />
                           ) : msg.content ? msg.content : (
-                            msg.role === 'assistant' && loading && i === messages.length - 1 ? <TypingDots /> : ''
+                            msg.role === 'assistant' && loading && i === messages.length - 1 ? <ThinkingIndicator /> : ''
                           )}
                         </div>
                         {msg.role === 'user' && msg.content && editingIdx !== i && (
@@ -1386,6 +1559,11 @@ function App() {
                         )}
                         {msg.role === 'assistant' && msg.content && (
                           <div className="msg-actions">
+                            {i === messages.length - 1 && (
+                              <motion.button className="msg-action-btn" title="Continue generating" onClick={() => continueGeneration()} whileTap={{ scale: 0.93 }} whileHover={{ scale: 1.12, color: 'var(--text-primary)' }}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                              </motion.button>
+                            )}
                             <motion.button className="msg-action-btn" title="Speak" onClick={() => speakText(msg.content)} whileTap={{ scale: 0.93 }} whileHover={{ scale: 1.12, color: 'var(--text-primary)' }}>
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></svg>
                             </motion.button>
@@ -1400,9 +1578,12 @@ function App() {
                             </motion.button>
                           </div>
                         )}
+                        {msg.created_at && (
+                          <div className="msg-time">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                        )}
                       </div>
                     </motion.div>
-                  ))}
+                  )})}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1543,11 +1724,30 @@ function App() {
                       <label>Context Window <span className="val">{contextWindow}</span></label>
                       <input type="range" min="512" max="8192" step="512" value={contextWindow} onChange={e => setContextWindow(Number(e.target.value))} />
                     </div>
+                    <motion.button className="new-chat-btn" style={{ alignSelf: 'flex-start' }} onClick={applyRecommended} whileTap={{ scale: 0.96 }}>Recommended settings</motion.button>
                     <div className="settings-group" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                       <label>System Prompt</label>
                       <textarea className="auth-input" rows={4} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} placeholder="You are a helpful assistant." style={{ resize: 'vertical', fontFamily: 'var(--font)' }} />
                     </div>
-                    <motion.button className="new-chat-btn" style={{ marginTop: 'auto' }} onClick={saveSettings} whileTap={{ scale: 0.96 }}>Save</motion.button>
+                    <div className="settings-group">
+                      <label>Personas</label>
+                      <div className="persona-list">
+                        {personas.length === 0 && <span className="muted">No saved personas yet.</span>}
+                        {personas.map(p => (
+                          <div key={p.id} className="persona-chip">
+                            <button type="button" className="persona-load" onClick={() => loadPersona(p.id)}>{p.name}</button>
+                            <button type="button" className="persona-del" onClick={() => deletePersona(p.id)} title="Delete persona">×</button>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                        <input className="auth-input" placeholder="Name this persona" value={personaName} onChange={e => setPersonaName(e.target.value)} />
+                        <button type="button" className="name-save" onClick={savePersona}>Save current</button>
+                      </div>
+                    </div>
+                    <motion.button className="new-chat-btn" style={{ marginTop: 'auto' }} onClick={saveSettings} whileTap={{ scale: 0.96 }} disabled={settingsBusy}>
+                      {settingsBusy ? 'Reloading model…' : 'Save'}
+                    </motion.button>
                   </>
                 ) : (
                   <>

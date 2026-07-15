@@ -27,7 +27,7 @@ A privacy-first, offline AI chat application that runs entirely on your machine.
 │     ┌────────▼────────┐                           │
 │     │  llama-cpp-     │                           │
 │     │  python (GGUF)  │                           │
-│     │  Llama-3.2-3B   │                           │
+│     │  Qwen2.5-0.5B  │                           │
 │     └─────────────────┘                           │
 └──────────────────────────────────────────────────┘
 ```
@@ -38,7 +38,7 @@ A privacy-first, offline AI chat application that runs entirely on your machine.
 |-------|-----------|
 | Frontend | React 19, Vite 8, Framer Motion, react-markdown, Prism syntax highlighting |
 | Backend | Python 3, FastAPI, uvicorn |
-| LLM | llama-cpp-python, GGUF models (default: Llama-3.2-3B-Instruct-Q4_K_M) |
+| LLM | llama-cpp-python, GGUF models (default: Qwen2.5-0.5B-Instruct-Q4_K_M) |
 | Auth | Supabase (email/password, Google OAuth, Telegram bot) |
 | Database | Supabase (PostgreSQL — conversations, messages, profiles) |
 | Email | SendGrid (primary) / Resend (fallback) |
@@ -48,7 +48,7 @@ A privacy-first, offline AI chat application that runs entirely on your machine.
 - Python 3.10+
 - Node.js 20+
 - A Supabase project (free tier works)
-- A GGUF model file (or use the default 3B model — see Setup)
+- A GGUF model file (or use the default 0.5B model — see Setup)
 
 ## Quick Start
 
@@ -72,7 +72,7 @@ cp .env.example .env
 # Edit .env with your Supabase credentials (see Configuration below)
 
 # 6. Download a model
-# Place a GGUF file in models/ (e.g., Llama-3.2-3B-Instruct-Q4_K_M.gguf)
+# Place a GGUF file in models/ (e.g., Qwen2.5-0.5B-Instruct-Q4_K_M.gguf)
 # or set LOCAL_AI_MODEL_PATH in .env to point to your model
 
 # 7. Build the frontend

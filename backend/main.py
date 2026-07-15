@@ -3,15 +3,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import sys, os
+import sys, os, logging
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from inference import chat as chat_gen, llm
+from inference import chat as chat_gen, reload_model, N_CTX, MODEL_PATH
 from db import (
     create_conversation, list_conversations, get_conversation,
-    add_message, update_title, delete_conversation,
+    add_message, update_last_assistant, update_title, delete_conversation,
     get_profile, upsert_profile, set_two_factor
 )
+
+logger = logging.getLogger("api")
 from auth import auth_client, get_user, SUPABASE_URL
 from urllib.parse import urlencode
 from rate_limit import install_rate_limiting
@@ -42,6 +44,9 @@ class ChatRequest(BaseModel):
 
 class TitleRequest(BaseModel):
     title: str
+
+class SettingsRequest(BaseModel):
+    context_window: int = 2048
 
 class RegisterRequest(BaseModel):
     type: str  # 'email' or 'phone'
@@ -146,7 +151,7 @@ def root():
 
 @app.get("/api")
 def api_root():
-    return {"status": "ok", "model": llm.model_path}
+    return {"status": "ok", "model": MODEL_PATH}
 
 @app.post("/api/auth/register")
 def auth_register(body: RegisterRequest):
@@ -486,22 +491,40 @@ def chat_endpoint(req: ChatRequest, user=Depends(require_user)):
         return JSONResponse(status_code=404, content={"error": "conversation not found"})
 
     is_first = len(conv["messages"]) == 0
-    add_message(conv_id, "user", req.messages[-1]["content"])
-    if is_first:
-        update_title(conv_id, req.messages[-1]["content"][:50])
+    last = req.messages[-1] if req.messages else {}
+    continuing = last.get("role") == "assistant"
+    if not continuing:
+        add_message(conv_id, "user", last.get("content", ""))
+        if is_first:
+            update_title(conv_id, last.get("content", "")[:50])
 
     def generate():
         full = ""
         for token in chat_gen(req.messages, req.temperature, req.max_tokens, req.top_p):
             full += token
             yield token
-        add_message(conv_id, "assistant", full)
+        # "continue" mode: merge the new tokens into the existing last assistant message
+        if continuing:
+            update_last_assistant(conv_id, last.get("content", "") + full)
+        else:
+            add_message(conv_id, "assistant", full)
 
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
+
+@app.post("/api/settings")
+def settings_endpoint(data: SettingsRequest, user=Depends(require_user)):
+    if user is None:
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    try:
+        reload_model(data.context_window)
+        return {"ok": True, "n_ctx": N_CTX}
+    except Exception as e:
+        logger.exception("model reload failed")
+        return JSONResponse(status_code=500, content={"error": f"Failed to reload model with n_ctx={data.context_window}: {e}"})
 
 @app.post("/api/contact")
 def contact_endpoint(data: dict):
